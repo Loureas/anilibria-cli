@@ -1,13 +1,13 @@
 <p align="center">
     <a><img width="75%" src=".assets/logo.png" alt="anilibria-cli"></a>
     <br>
-    <h4 align="center">
+    <h3 align="center">
         <i>
             A POSIX script that allows you to search and watch anime series
             <br>
             with Russian dubbing <a href="https://anilibria.tv">AniLibria.TV</a> using <a href="https://github.com/anilibria/docs">the official website API</a>
         </i>
-    </h4>
+    </h3>
 </p>
 
 ---
