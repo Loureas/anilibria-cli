@@ -1,0 +1,532 @@
+#!/usr/bin/env sh
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+# Error codes:
+# 0 - Success
+# 1 - General error
+# 2 - Invalid option
+# 3 - Missing dependencies
+# 4 - API call error
+# 5 - No anime found
+# 6 - Episode not found with any quality
+# 7 - Update error
+
+# About POSIX script
+NAME="${0##*/}"
+DESCRIPTION="A POSIX script that allows you to search and
+play anime series with Russian dubbing AniLibria.TV using
+the official website API <https://github.com/anilibria/docs>"
+VERSION="1.0.0" # major.minor.bugs
+LICENSE="GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>"
+REPO="Loureas/anilibria-cli"
+SITE="<https://github.com/$REPO>"
+CONTRIBUTORS="Pavel Piskursky (Loureas) and others; see\n<https://github.com/$REPO/graphs/contributors>"
+CONTACTS="Telegram <https://t.me/Loureas>"
+
+# AniLibria.TV API prefix, version and URL
+API_PREFIX="v"
+API_VERSION=2
+API_URL="https://api.anilibria.tv/${API_PREFIX}${API_VERSION}"
+
+# Video quality
+QUALITY=(fhd hd sd)
+
+# Connection options
+TIMEOUT=10 # Connection timeout
+RETRY=2 # Number of connection attempts after timeout
+
+# Colors
+C_RED="\e[1;31m"
+C_GREEN="\e[1;32m"
+C_YELLOW="\e[1;33m"
+C_BLUE="\e[1;34m"
+C_MAGENTA="\e[1;35m"
+C_CYAN="\e[1;36m"
+C_RESET="\e[0m"
+C_BOLD="\e[1m"
+
+### AUXILIARY FUNCTIONS ###
+
+help_text () {
+    cat << EOF
+Usage:
+   $NAME [-h | -V | -U]
+
+Other:
+   -h  Print this help message
+   -V  Print version and about POSIX script
+   -U  Update script from GitHub repository
+
+Search:
+   Search queries are performed in English and Russian language.
+
+Anime selection:
+   Only one anime can be selected using numbers.
+   If only one anime is found, it will be selected automatically.
+   Enter -1 to select the last anime.
+
+   Other actions:
+      p - Back to search
+      q - Quit from script
+
+Episode selection:
+   One, multiple or a range of episodes can be given.
+   If only one episode is found, it will be selected automatically.
+   Enter -1 to select the last episode.
+
+   Other actions:
+      p - Back to the anime selection
+      q - Quit from script
+
+   Examples:
+      Choose episode [1-12]: 4
+      Choose episode [1-12]: 5 7 9 11
+      Choose episode [1-12]: 2-6
+      Choose episode [1-12]: -1
+EOF
+}
+
+about_text () {
+    while read -r line; do
+        printf "%b\n" "$line"
+    done << EOF
+$NAME $VERSION
+$DESCRIPTION
+
+License: $LICENSE
+Repository: <https://github.com/$REPO>
+Home web site: $SITE
+Contacts: $CONTACTS
+
+Contributors: $CONTRIBUTORS
+EOF
+}
+
+# Update script from GitHub repository
+update () {
+    local filepath=$(which "$0")
+
+    # Check permissions
+    local bits_script=$(stat -c %a "$filepath")
+    local uid_script=$(stat -c %u "$filepath")
+    if ! [ $bits_script -ge 600 ] || { [ $UID -ne 0 ] && [ $UID -ne $uid_script ]; }; then
+        die 7 "Error: permission denied\nTry run as root: sudo $NAME -U"
+    fi
+
+    # Check for available updates
+    print_bold "Checking for available updates..."
+    local tag_name=$($FETCH "https://api.github.com/repos/$REPO/releases/latest" | jq -r ".tag_name" || die 7 "An error occurred during the update")
+
+    if [ $(cut -c 2- <<< $tag_name) = "$VERSION" ]; then
+        print_yellow "The script is up to date"
+    else
+        print_bold "Downloading updates..."
+        local update_diff=$($FETCH "https://raw.githubusercontent.com/$REPO/$tag_name/$NAME" || die 7 "An error occurred during the update")
+        print_bold "Patching..."
+        update_diff=$(echo -en "$update_diff" | diff -u "$filepath" -)
+        if echo -en "$update_diff" | patch "$filepath" - ; then
+            print_green "The script has been updated to $(cut -c 2- <<< $tag_name) version"
+        else
+            die 7 "An error occurred during the update"
+        fi
+    fi
+}
+
+# Print output in different colors
+print_red () {
+    echo -e "${C_RED}${1}${C_RESET}"
+}
+
+print_blue () {
+    echo -e "${C_BLUE}${1}${C_RESET}"
+}
+
+print_yellow () {
+    echo -e "${C_YELLOW}${1}${C_RESET}"
+}
+
+print_green () {
+    echo -e "${C_GREEN}${1}${C_RESET}"
+}
+
+print_bold () {
+    echo -e "${C_BOLD}${1}${C_RESET}"
+}
+
+# Checks for the existence of a command
+command_exists () {
+    command -v $1 > /dev/null 2>&1
+}
+
+# Exit from script with error code (text optional)
+die () {
+    if [ -n "$2" ]; then
+        [ $1 -eq 0 ] && print_bold "$2"
+        [ $1 -gt 0 ] && print_red "$2" >&2
+    fi
+    exit $1
+}
+
+append () {
+    [ -z $1 ] && printf "%s" "$2" || printf "%s %s" "$1" "$2"
+}
+
+# Detects operating system
+os_detect () {
+    if [ -f /etc/os-release ]; then
+        local id=$(grep -E -e "^ID_LIKE=" /etc/os-release | cut -d "=" -f 2)
+        if [ -z "$id" ]; then
+            id=$(grep -E -e "^ID=" /etc/os-release | cut -d "=" -f 2)
+            [ -n "$id" ] && echo $id || echo unknown
+        else
+            echo $(cut -d " " -f 1 <<< $id)
+        fi
+    else
+        echo unknown
+    fi
+}
+
+# Returns a command to install
+# the required packages according
+# to the current operating system
+pkg_install () {
+    _begin="$ sudo"
+    case ${OS} in
+        arch)
+            echo "$_begin pacman -Sy $1"
+        ;;
+        ubuntu | debian)
+            echo "$_begin apt update && sudo apt install $1"
+        ;;
+    esac
+}
+
+### PROMPTS AND MENU SELECTIONS ###
+
+prompt () {
+    while [ -z "$REPLY" ]; do
+        printf "${C_BLUE}%s:${C_RESET} ${C_YELLOW}" "$1"
+        read -r
+        tput sgr0
+    done
+}
+
+prompt_sel () {
+    local count=$(wc -l <<< $1)
+    while true; do
+        printf "${C_BLUE}%s${C_RESET} ${C_MAGENTA}[${C_GREEN}1${C_RESET}${C_BOLD}-${C_GREEN}%s${C_MAGENTA}]${C_BLUE}: ${C_YELLOW}" "$2" $count
+        read -r
+        tput sgr0
+        [ -z "$REPLY" ] && print_red "Empty choice" && continue
+        grep -qi q <<< $REPLY && die 0 "Quit..."
+        grep -qi p <<< $REPLY && REPLY=p && return 0
+
+        [ "$REPLY" = "-1" ] && REPLY=$count && break
+
+        if ! [ "$REPLY" -eq "$REPLY" ] 2>/dev/null; then
+            print_red "Invalid choice entered"
+            continue
+        fi
+        if ! [ "$REPLY" -ge 1 ] || ! [ "$REPLY" -le $count ]; then
+            print_red "Out of range"
+            continue
+        fi
+        break
+    done
+    REPLY=$(sed -n "${REPLY}p" <<< $1)
+}
+
+prompt_episode () {
+    local start=$2
+    local end=$3
+    printf "%b\n" "${C_CYAN}[${C_YELLOW}p${C_CYAN}]${C_RESET} Back" \
+                  "${C_CYAN}[${C_YELLOW}q${C_CYAN}]${C_RESET} Quit"
+
+    while true; do
+        _invalid=false
+
+        printf "${C_BLUE}%s${C_RESET} ${C_MAGENTA}[${C_GREEN}%s${C_RESET}${C_BOLD}-${C_GREEN}%s${C_MAGENTA}]${C_BLUE}: ${C_YELLOW}" "$1" $start $end
+        read -r
+        tput sgr0
+        [ -z "$REPLY" ] && print_red "Empty choice" && continue
+        grep -qi q <<< $REPLY && die 0 "Quit..."
+        grep -qi p <<< $REPLY && REPLY=p && return 0
+
+        [ "$REPLY" = "-1" ] && REPLY=$end && return 0
+
+        if grep -qE '^[1-9]([0-9]+)?-[1-9]([0-9]+)?$' <<< $REPLY; then
+            local ep_start=$(cut -d "-" -f 1 <<< $REPLY)
+            local ep_end=$(cut -d "-" -f 2 <<< $REPLY)
+
+            if ! [ "$ep_start" -ge $start ] || ! [ "$ep_start" -le $end ]; then
+                print_red "Begin episode is out of range"
+                continue
+            fi
+            if ! [ "$ep_end" -ge $start ] || ! [ "$ep_end" -le $end ]; then
+                print_red "End episode is out of range"
+                continue
+            fi
+
+            if [ "$ep_start" -gt "$ep_end" ]; then
+                REPLY=$(seq $ep_end $ep_start | sort -n)
+            else
+                REPLY=$(seq $ep_start $ep_end | sort -n)
+            fi
+            break
+        fi
+
+        for ep in $REPLY; do
+            if ! [ "$ep" -eq "$ep" ] 2> /dev/null; then
+                print_red "Invalid \"$ep\" episode entered"
+                _invalid=true
+                break
+            fi
+            if ! [ "$ep" -ge $start ] || ! [ "$ep" -le $end ]; then
+                print_red "\"$ep\" episode is out of range"
+                _invalid=true
+                break
+            fi
+        done
+        if $_invalid; then continue; fi
+
+        REPLY=$(tr " " "\n" <<< $REPLY | sort -n | uniq)
+        break
+    done
+}
+
+# Selections
+menu_selection () {
+    local count=1
+    [ -z "$1" ] && return 1 # Returns 1 if string is empty
+    while read -r line; do
+        printf "${C_CYAN}[${C_YELLOW}%s${C_CYAN}]${C_RESET} %s\n" "$count" "$line"
+        : $(( count+=1 ))
+    done <<< "$1"
+    printf "%b\n" "${C_CYAN}[${C_YELLOW}p${C_CYAN}]${C_RESET} Back" \
+                  "${C_CYAN}[${C_YELLOW}p${C_CYAN}]${C_RESET} Quit"
+}
+
+### PLAYER SETUP ###
+
+# Creates m3u8 playlist
+make_m3u8 () {
+    PLAYLIST_TEXT="#EXTM3U\n"
+    local title=$1
+
+    # Create new playlist text
+    for i in ${!ep_array[*]}; do
+        PLAYLIST_TEXT="${PLAYLIST_TEXT}#EXTINF:-1,${title} | Episode ${ep_array[$i]}\n${url_array[$i]}\n"
+    done
+}
+
+# Starts the player with the playlist
+play () {
+    case "$PLAYER" in
+        mpv)
+            mpv <(echo -en $PLAYLIST_TEXT ) > /dev/null 2>&1
+        ;;
+        vlc)
+            vlc <(echo -en $PLAYLIST_TEXT ) > /dev/null 2>&1
+        ;;
+        *)
+            die 3 "No player found"
+        ;;
+    esac
+}
+
+### CHECK DEPENDENCIES ###
+
+# Checks all required dependencies
+check_req_dep () {
+    # Commands for to access the API
+    local commands=(curl jq)
+    local not_dependecy=false
+    for com in ${commands[*]}; do
+        if ! command_exists $com; then
+            not_dependecy=true
+            print_red "\"$com\" is a required dependecy, please install it" >&2
+            not_exists=$(append "$not_exists" "$com")
+        fi
+    done
+    if $not_dependecy; then
+        echo -e "\n\t$(pkg_install "$not_exists")\n" >&2
+        return 3
+    fi
+}
+
+# Checks for video players
+# and returns the found
+#
+# By default, the player usage
+# priority is given to the following:
+#  | mpv
+#  | VLC
+check_players () {
+    local players=(mpv vlc)
+    local not_dependecy=true
+    for player in ${players[*]}; do
+        if command_exists $player; then
+            not_dependecy=false
+            echo $player
+            return 0
+        fi
+    done
+    print_red "No suitable video player found, please install one of them:\n" >&2
+    for player in ${players[*]}; do
+        echo -e "\t${player}: $(pkg_install $player)" >&2
+    done
+    echo >&2
+    return 3
+}
+
+### API REQUESTS ###
+search_titles () {
+    local res
+    res=$(${FETCH} \
+            --data-urlencode "search=${1}" \
+            --data-urlencode "limit=-1" \
+            "${API_URL}/searchTitles" 2> /dev/null) || return $?
+    echo $res
+}
+
+### START MAIN SCRIPT ###
+
+trap 'die 1 "\nInterrupted by user"' INT HUP
+
+# Parse options
+while getopts ":hVU" opt; do
+    case $opt in
+        h)
+            SHOW_HELP=true
+        ;;
+        V)
+            SHOW_ABOUT=true
+        ;;
+        U)
+            UPDATE_SCRIPT=true
+        ;;
+        ?)
+            die 2 "Invalid option: -${OPTARG}\nType to print help message: $NAME -h"
+        ;;
+    esac
+done
+
+# Show help or about message
+# if -h or -V options are given
+[ -n "$SHOW_HELP" ] && help_text && die 0
+[ -n "$SHOW_ABOUT" ] && about_text && die 0
+
+# Check dependencies
+OS=$(os_detect)
+check_req_dep || die $?
+FETCH="curl -s -G --connect-timeout $TIMEOUT --retry $RETRY"
+PLAYER=$(check_players) || die $?
+
+# Update script if the -U option is given
+[ -n "$UPDATE_SCRIPT" ] && update && die 0
+
+state="search" # Loop state
+
+# Loop
+while true; do
+    unset REPLY
+
+    case "$state" in
+
+        search)
+
+            # Search query
+            prompt "Search anime"
+            query=$REPLY
+
+            # Send request search
+            print_bold "Searching..."
+            res=$(search_titles "$query")
+            exit_code=$?
+
+            # Exit if fetch is failed
+            [ $exit_code -eq 6 ] && die 4 "Failed to fetch: could not resolve host"
+            [ $exit_code -eq 7 ] && die 4 "Failed to fetch: could not connect to host"
+            [ $exit_code -eq 28 ] && die 4 "Failed to fetch: connection timeout"
+            [ $exit_code -ne 0 ] && die 4 "Failed to fetch: unknown error: $exit_code"
+
+            names=$(jq -r '.[].names.ru' <<< $res | sort)
+            [ -z "$names" ] && print_red "No anime found" || state="anime"
+        ;;
+        anime)
+
+            tput clear
+            if [ $(wc -l <<< $names) -ne 1 ]; then
+                menu_selection "$names" # Choose anime
+                prompt_sel "$names" "Choose anime"
+                [ "$REPLY" = "p" ] && state="search" && continue
+                anime_ru=$REPLY
+            else
+                anime_ru=$names # Choose only one matched
+            fi
+            choosed=$(jq ".[] | select(.names.ru == \"${anime_ru}\")" <<< $res)
+            anime_en=$(jq -r ".names.en" <<< $choosed)
+            host_player="https://$(jq -r ".player.host" <<< $choosed)"
+            ep_start=$(jq -r ".player.series.first" <<< $choosed)
+            ep_end=$(jq -r ".player.series.last" <<< $choosed)
+            echo -e "${C_CYAN}Choosed anime: ${C_YELLOW}${anime_ru}${C_RESET}"
+            state="episode"
+
+        ;;
+        episode)
+
+            if [ $ep_start -eq 1 ] && [ $ep_end -eq 1 ]; then
+                # Play immediately if there is only one episode
+                eps=1
+                [ $(wc -l <<< $names) -eq 1 ] && state="search" || state="anime"
+            else
+                # Choose episode
+                prompt_episode "Choose episode" $ep_start $ep_end
+                if [ "$REPLY" = "p" ]; then
+                    [ $(wc -l <<< $names) -eq 1 ] && state="search" || state="anime"
+                    continue
+                fi
+                eps=$REPLY
+            fi
+
+            # Create playlist
+            print_bold "Creating playlist..."
+            unset ep_array
+            unset url_array
+            declare -a ep_array
+            declare -a url_array
+            for ep in $eps; do
+
+                # Priority on maximum quality
+                for q in ${QUALITY[@]}; do
+                    url=$(jq -re ".player.playlist.\"${ep}\".hls.${q}" <<< $choosed) && break
+                done
+                [ -z "$url" ] && die 6 "Episode \"${ep}\" not found with any quality"
+
+                ep_array+=($ep)
+                url_array+=("${host_player}/${url}")
+
+            done
+
+            # Make m3u8 playlist and play
+            make_m3u8 "$anime_en"
+            print_bold "Playing..."
+            play
+
+        ;;
+    esac
+
+done
+
