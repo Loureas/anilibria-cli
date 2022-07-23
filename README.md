@@ -122,6 +122,11 @@ sudo make uninstall
     Choose episode [1-24]: 3-22
     ```
 
+    **Last episode:**
+    ```
+    Choose episode [1-24]: -1
+    ```
+
 4. **Enjoy watching!**
 
 ## :keyboard: Action keys
