@@ -28,7 +28,7 @@ NAME="${0##*/}"
 DESCRIPTION="A POSIX script that allows you to search and
 play anime series with Russian dubbing AniLibria.TV using
 the official website API <https://github.com/anilibria/docs>"
-VERSION="1.0.0" # major.minor.bugs
+VERSION="1.0.1" # major.minor.bugs
 LICENSE="GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>"
 REPO="Loureas/anilibria-cli"
 SITE="<https://github.com/$REPO>"
@@ -41,7 +41,7 @@ API_VERSION=2
 API_URL="https://api.anilibria.tv/${API_PREFIX}${API_VERSION}"
 
 # Video quality
-QUALITY=(fhd hd sd)
+QUALITY="fhd hd sd"
 
 # Connection options
 TIMEOUT=10 # Connection timeout
@@ -326,8 +326,11 @@ make_m3u8 () {
     local title=$1
 
     # Create new playlist text
-    for i in ${!ep_array[*]}; do
-        PLAYLIST_TEXT="${PLAYLIST_TEXT}#EXTINF:-1,${title} | Episode ${ep_array[$i]}\n${url_array[$i]}\n"
+    for i in $(seq 1 $(wc -l <<< "$2")); do
+        local ep=$(sed "${i}p;d" <<< "$2")
+        local url=$(echo -en "$3" | sed "${i}p;d")
+
+        PLAYLIST_TEXT="${PLAYLIST_TEXT}#EXTINF:-1,${title} | Episode ${ep}\n${url}\n"
     done
 }
 
@@ -503,25 +506,21 @@ while true; do
 
             # Create playlist
             print_bold "Creating playlist..."
-            unset ep_array
-            unset url_array
-            declare -a ep_array
-            declare -a url_array
+            url_array=""
             for ep in $eps; do
 
                 # Priority on maximum quality
-                for q in ${QUALITY[@]}; do
+                for q in $(echo $QUALITY); do
                     url=$(jq -re ".player.playlist.\"${ep}\".hls.${q}" <<< $choosed) && break
                 done
                 [ -z "$url" ] && die 6 "Episode \"${ep}\" not found with any quality"
 
-                ep_array+=($ep)
-                url_array+=("${host_player}/${url}")
+                url_array+="${host_player}/${url}\n"
 
             done
 
             # Make m3u8 playlist and play
-            make_m3u8 "$anime_en"
+            make_m3u8 "$anime_en" "$eps" "$url_array"
             print_bold "Playing..."
             play
 
