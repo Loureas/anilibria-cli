@@ -28,7 +28,7 @@ NAME="${0##*/}"
 DESCRIPTION="A POSIX script that allows you to search and
 play anime series with Russian dubbing AniLibria.TV using
 the official website API <https://github.com/anilibria/docs>"
-VERSION="1.0.1" # major.minor.bugs
+VERSION="1.0.0" # major.minor.bugs
 LICENSE="GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>"
 REPO="Loureas/anilibria-cli"
 SITE="<https://github.com/$REPO>"
@@ -41,7 +41,7 @@ API_VERSION=2
 API_URL="https://api.anilibria.tv/${API_PREFIX}${API_VERSION}"
 
 # Video quality
-QUALITY="fhd hd sd"
+QUALITY=(fhd hd sd)
 
 # Connection options
 TIMEOUT=10 # Connection timeout
@@ -128,9 +128,8 @@ update () {
     # Check for available updates
     print_bold "Checking for available updates..."
     local tag_name=$($FETCH "https://api.github.com/repos/$REPO/releases/latest" | jq -r ".tag_name" || die 7 "An error occurred during the update")
-    local tag_version=$(printf "%s" "$tag_name" | cut -c 2-)
 
-    if [ "$tag_version" = "$VERSION" ]; then
+    if [ $(cut -c 2- <<< $tag_name) = "$VERSION" ]; then
         print_yellow "The script is up to date"
     else
         print_bold "Downloading updates..."
@@ -138,7 +137,7 @@ update () {
         print_bold "Patching..."
         update_diff=$(echo -en "$update_diff" | diff -u "$filepath" -)
         if echo -en "$update_diff" | patch "$filepath" - ; then
-            print_green "The script has been updated to $tag_version version"
+            print_green "The script has been updated to $(cut -c 2- <<< $tag_name) version"
         else
             die 7 "An error occurred during the update"
         fi
@@ -192,7 +191,7 @@ os_detect () {
             id=$(grep -E -e "^ID=" /etc/os-release | cut -d "=" -f 2)
             [ -n "$id" ] && echo $id || echo unknown
         else
-            echo $(printf "%s" "$id" | cut -d " " -f 1)
+            echo $(cut -d " " -f 1 <<< $id)
         fi
     else
         echo unknown
@@ -225,14 +224,14 @@ prompt () {
 }
 
 prompt_sel () {
-    local count=$(printf "%s\n" "$1" | wc -l)
+    local count=$(wc -l <<< $1)
     while true; do
         printf "${C_BLUE}%s${C_RESET} ${C_MAGENTA}[${C_GREEN}1${C_RESET}${C_BOLD}-${C_GREEN}%s${C_MAGENTA}]${C_BLUE}: ${C_YELLOW}" "$2" $count
         read -r
         tput sgr0
         [ -z "$REPLY" ] && print_red "Empty choice" && continue
-        printf "%s" "$REPLY" | grep -qi q && die 0 "Quit..."
-        printf "%s" "$REPLY" | grep -qi p && REPLY=p && return 0
+        grep -qi q <<< $REPLY && die 0 "Quit..."
+        grep -qi p <<< $REPLY && REPLY=p && return 0
 
         [ "$REPLY" = "-1" ] && REPLY=$count && break
 
@@ -246,7 +245,7 @@ prompt_sel () {
         fi
         break
     done
-    REPLY=$(printf "%s\n" "$1" | sed -n "${REPLY}p")
+    REPLY=$(sed -n "${REPLY}p" <<< $1)
 }
 
 prompt_episode () {
@@ -262,14 +261,14 @@ prompt_episode () {
         read -r
         tput sgr0
         [ -z "$REPLY" ] && print_red "Empty choice" && continue
-        printf "%s" "$REPLY" | grep -qi q && die 0 "Quit..."
-        printf "%s" "$REPLY" | grep -qi p && REPLY=p && return 0
+        grep -qi q <<< $REPLY && die 0 "Quit..."
+        grep -qi p <<< $REPLY && REPLY=p && return 0
 
         [ "$REPLY" = "-1" ] && REPLY=$end && return 0
 
-        if printf "%s" "$REPLY" | grep -qE '^[1-9]([0-9]+)?-[1-9]([0-9]+)?$'; then
-            local ep_start=$(printf "%s" "$REPLY" | cut -d "-" -f 1)
-            local ep_end=$(printf "%s" "$REPLY" | cut -d "-" -f 2)
+        if grep -qE '^[1-9]([0-9]+)?-[1-9]([0-9]+)?$' <<< $REPLY; then
+            local ep_start=$(cut -d "-" -f 1 <<< $REPLY)
+            local ep_end=$(cut -d "-" -f 2 <<< $REPLY)
 
             if ! [ "$ep_start" -ge $start ] || ! [ "$ep_start" -le $end ]; then
                 print_red "Begin episode is out of range"
@@ -302,7 +301,7 @@ prompt_episode () {
         done
         if $_invalid; then continue; fi
 
-        REPLY=$(printf "%s" "$REPLY" | tr " " "\n" | sort -n | uniq)
+        REPLY=$(tr " " "\n" <<< $REPLY | sort -n | uniq)
         break
     done
 }
@@ -314,9 +313,7 @@ menu_selection () {
     while read -r line; do
         printf "${C_CYAN}[${C_YELLOW}%s${C_CYAN}]${C_RESET} %s\n" "$count" "$line"
         : $(( count+=1 ))
-    done <<-EOF
-    $1
-EOF
+    done <<< "$1"
     printf "%b\n" "${C_CYAN}[${C_YELLOW}p${C_CYAN}]${C_RESET} Back" \
                   "${C_CYAN}[${C_YELLOW}q${C_CYAN}]${C_RESET} Quit"
 }
@@ -329,11 +326,8 @@ make_m3u8 () {
     local title=$1
 
     # Create new playlist text
-    for i in $(seq 1 $(printf "%s\n" "$2" | wc -l)); do
-        local ep=$(printf "%s\n" "$2" | sed "${i}p;d")
-        local url=$(echo -en "$3" | sed "${i}p;d")
-
-        PLAYLIST_TEXT="${PLAYLIST_TEXT}#EXTINF:-1,${title} | Episode ${ep}\n${url}\n"
+    for i in ${!ep_array[*]}; do
+        PLAYLIST_TEXT="${PLAYLIST_TEXT}#EXTINF:-1,${title} | Episode ${ep_array[$i]}\n${url_array[$i]}\n"
     done
 }
 
@@ -468,14 +462,13 @@ while true; do
             [ $exit_code -eq 28 ] && die 4 "Failed to fetch: connection timeout"
             [ $exit_code -ne 0 ] && die 4 "Failed to fetch: unknown error: $exit_code"
 
-            names=$(printf "%s" "$res" | jq -r '.[].names.ru' | sort)
-            names_count=$(printf "%s\n" "$names" | wc -l)
+            names=$(jq -r '.[].names.ru' <<< $res | sort)
             [ -z "$names" ] && print_red "No anime found" || state="anime"
         ;;
         anime)
 
             tput clear
-            if [ $names_count -ne 1 ]; then
+            if [ $(wc -l <<< $names) -ne 1 ]; then
                 menu_selection "$names" # Choose anime
                 prompt_sel "$names" "Choose anime"
                 [ "$REPLY" = "p" ] && state="search" && continue
@@ -483,11 +476,11 @@ while true; do
             else
                 anime_ru=$names # Choose only one matched
             fi
-            choosed=$(printf "%s" "$res" | jq ".[] | select(.names.ru == \"${anime_ru}\")")
-            anime_en=$(printf "%s" "$choosed" | jq -r ".names.en")
-            host_player="https://$(printf "%s" "$choosed" | jq -r ".player.host")"
-            ep_start=$(printf "%s" "$choosed" | jq -r ".player.series.first")
-            ep_end=$(printf "%s" "$choosed" | jq -r ".player.series.last")
+            choosed=$(jq ".[] | select(.names.ru == \"${anime_ru}\")" <<< $res)
+            anime_en=$(jq -r ".names.en" <<< $choosed)
+            host_player="https://$(jq -r ".player.host" <<< $choosed)"
+            ep_start=$(jq -r ".player.series.first" <<< $choosed)
+            ep_end=$(jq -r ".player.series.last" <<< $choosed)
             echo -e "${C_CYAN}Choosed anime: ${C_YELLOW}${anime_ru}${C_RESET}"
             state="episode"
 
@@ -497,12 +490,12 @@ while true; do
             if [ $ep_start -eq 1 ] && [ $ep_end -eq 1 ]; then
                 # Play immediately if there is only one episode
                 eps=1
-                [ $names_count -eq 1 ] && state="search" || state="anime"
+                [ $(wc -l <<< $names) -eq 1 ] && state="search" || state="anime"
             else
                 # Choose episode
                 prompt_episode "Choose episode" $ep_start $ep_end
                 if [ "$REPLY" = "p" ]; then
-                    [ $names_count -eq 1 ] && state="search" || state="anime"
+                    [ $(wc -l <<< $names) -eq 1 ] && state="search" || state="anime"
                     continue
                 fi
                 eps=$REPLY
@@ -510,21 +503,25 @@ while true; do
 
             # Create playlist
             print_bold "Creating playlist..."
-            url_array=""
+            unset ep_array
+            unset url_array
+            declare -a ep_array
+            declare -a url_array
             for ep in $eps; do
 
                 # Priority on maximum quality
-                for q in $(echo $QUALITY); do
-                    url=$(printf "%s" "$choosed" | jq -re ".player.playlist.\"${ep}\".hls.${q}") && break
+                for q in ${QUALITY[@]}; do
+                    url=$(jq -re ".player.playlist.\"${ep}\".hls.${q}" <<< $choosed) && break
                 done
                 [ -z "$url" ] && die 6 "Episode \"${ep}\" not found with any quality"
 
-                url_array+="${host_player}/${url}\n"
+                ep_array+=($ep)
+                url_array+=("${host_player}/${url}")
 
             done
 
             # Make m3u8 playlist and play
-            make_m3u8 "$anime_en" "$eps" "$url_array"
+            make_m3u8 "$anime_en"
             print_bold "Playing..."
             play
 
