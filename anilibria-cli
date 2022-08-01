@@ -316,7 +316,7 @@ menu_selection () {
     $1
 EOF
     printf "%b\n" "${C_CYAN}[${C_YELLOW}p${C_CYAN}]${C_RESET} Back" \
-                  "${C_CYAN}[${C_YELLOW}p${C_CYAN}]${C_RESET} Quit"
+                  "${C_CYAN}[${C_YELLOW}q${C_CYAN}]${C_RESET} Quit"
 }
 
 ### PLAYER SETUP ###
