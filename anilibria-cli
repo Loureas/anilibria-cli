@@ -126,8 +126,9 @@ update () {
     # Check for available updates
     print_bold "Checking for available updates..."
     local tag_name=$($FETCH "https://api.github.com/repos/$REPO/releases/latest" | jq -r ".tag_name" || die 7 "An error occurred during the update")
+    local tag_version=$(cut -c 2- <<< $tag_name)
 
-    if [ $(cut -c 2- <<< $tag_name) = "$VERSION" ]; then
+    if [ "$tag_version" = "$VERSION" ]; then
         print_yellow "The script is up to date"
     else
         print_bold "Downloading updates..."
@@ -135,7 +136,7 @@ update () {
         print_bold "Patching..."
         update_diff=$(echo -en "$update_diff" | diff -u "$filepath" -)
         if echo -en "$update_diff" | patch "$filepath" - ; then
-            print_green "The script has been updated to $(cut -c 2- <<< $tag_name) version"
+            print_green "The script has been updated to $tag_version version"
         else
             die 7 "An error occurred during the update"
         fi
@@ -461,12 +462,13 @@ while true; do
             [ $exit_code -ne 0 ] && die 4 "Failed to fetch: unknown error: $exit_code"
 
             names=$(jq -r '.[].names.ru' <<< $res | sort)
+            names_count=$(wc -l <<< $names)
             [ -z "$names" ] && print_red "No anime found" || state="anime"
         ;;
         anime)
 
             tput clear
-            if [ $(wc -l <<< $names) -ne 1 ]; then
+            if [ $names_count -ne 1 ]; then
                 menu_selection "$names" # Choose anime
                 prompt_sel "$names" "Choose anime"
                 [ "$REPLY" = "p" ] && state="search" && continue
@@ -488,12 +490,12 @@ while true; do
             if [ $ep_start -eq 1 ] && [ $ep_end -eq 1 ]; then
                 # Play immediately if there is only one episode
                 eps=1
-                [ $(wc -l <<< $names) -eq 1 ] && state="search" || state="anime"
+                [ $names_count -eq 1 ] && state="search" || state="anime"
             else
                 # Choose episode
                 prompt_episode "Choose episode" $ep_start $ep_end
                 if [ "$REPLY" = "p" ]; then
-                    [ $(wc -l <<< $names) -eq 1 ] && state="search" || state="anime"
+                    [ $names_count -eq 1 ] && state="search" || state="anime"
                     continue
                 fi
                 eps=$REPLY
