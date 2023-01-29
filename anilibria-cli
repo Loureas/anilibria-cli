@@ -37,7 +37,7 @@ CONTACTS="Telegram <https://t.me/Loureas>"
 
 # AniLibria.TV API prefix, version and URL
 API_PREFIX="v"
-API_VERSION=2
+API_VERSION=3
 API_URL="https://api.anilibria.tv/${API_PREFIX}${API_VERSION}"
 
 # Video quality
@@ -398,7 +398,7 @@ search_titles () {
     res=$(${FETCH} \
             --data-urlencode "search=${1}" \
             --data-urlencode "limit=-1" \
-            "${API_URL}/searchTitles" 2> /dev/null) || return $?
+            "${API_URL}/title/search" 2> /dev/null) || return $?
     echo $res
 }
 
@@ -462,8 +462,7 @@ while true; do
             [ $exit_code -eq 7 ] && die 4 "Failed to fetch: could not connect to host"
             [ $exit_code -eq 28 ] && die 4 "Failed to fetch: connection timeout"
             [ $exit_code -ne 0 ] && die 4 "Failed to fetch: unknown error: $exit_code"
-
-            names=$(jq -r '.[].names.ru' <<< $res | sort)
+            names=$(jq -r '.list | .[].names.ru' <<< $res | sort)
             names_count=$(wc -l <<< $names)
             [ -z "$names" ] && print_red "No anime found" || state="anime"
         ;;
@@ -478,11 +477,11 @@ while true; do
             else
                 anime_ru=$names # Choose only one matched
             fi
-            choosed=$(jq ".[] | select(.names.ru == \"${anime_ru}\")" <<< $res)
+            choosed=$(jq ".list | .[] | select(.names.ru == \"${anime_ru}\")" <<< $res)
             anime_en=$(jq -r ".names.en" <<< $choosed)
             host_player="https://$(jq -r ".player.host" <<< $choosed)"
-            ep_start=$(jq -r ".player.series.first" <<< $choosed)
-            ep_end=$(jq -r ".player.series.last" <<< $choosed)
+            ep_start=$(jq -r ".player.episodes.first" <<< $choosed)
+            ep_end=$(jq -r ".player.episodes.last" <<< $choosed)
             echo -e "${C_CYAN}Choosed anime: ${C_YELLOW}${anime_ru}${C_RESET}"
             state="episode"
 
@@ -513,7 +512,7 @@ while true; do
 
                 # Priority on maximum quality
                 for q in ${QUALITY[@]}; do
-                    url=$(jq -re ".player.playlist.\"${ep}\".hls.${q}" <<< $choosed) && break
+                    url=$(jq -re ".player.list.\"${ep}\".hls.${q}" <<< $choosed) && break
                 done
                 [ -z "$url" ] && die 6 "Episode \"${ep}\" not found with any quality"
 
