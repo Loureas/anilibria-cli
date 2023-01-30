@@ -243,8 +243,6 @@ prompt_episode () {
         grep -qi q <<< $REPLY && die 0 "Quit..."
         grep -qi p <<< $REPLY && unset REPLY && return 0
 
-        [ "$REPLY" = "-1" ] && REPLY=$end && return 0
-
         if grep -qE '^[1-9]([0-9]+)?-[1-9]([0-9]+)?$' <<< $REPLY; then
             local ep_start=$(cut -d "-" -f 1 <<< $REPLY)
             local ep_end=$(cut -d "-" -f 2 <<< $REPLY)
@@ -272,6 +270,13 @@ prompt_episode () {
                 _invalid=true
                 break
             fi
+            
+            if [ "$ep" -lt 0 ]; then
+                converted_ep=$((ep_end + 1 + ep))
+                REPLY=${REPLY//$ep/$converted_ep}
+                ep=$converted_ep
+            fi
+
             if ! [ "$ep" -ge $start ] || ! [ "$ep" -le $end ]; then
                 print_red "\"$ep\" episode is out of range"
                 _invalid=true
