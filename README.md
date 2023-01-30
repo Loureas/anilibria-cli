@@ -22,6 +22,7 @@
 
 * [`Dependencies`](#gear-dependencies)
     * [`Required dependencies`](#exclamation-required-dependencies)
+    * [`Optional dependencies`](#heavy_check_mark-optional-dependencies)
 * [`Install`](#inbox_tray-install)
     * [`Uninstall`](#wastebasket-uninstall)
 * [`Usage`](#desktop_computer-usage)
@@ -41,6 +42,12 @@
 | [`jq`](https://github.com/stedolan/jq)                                                     | Parsing JSON responses from a web server.       |
 | [`curl`](https://github.com/curl/curl)                                                     | Sending HTTP requests to interact with the API. |
 | [`mpv`](https://github.com/mpv-player/mpv) **OR** [`vlc`](https://github.com/videolan/vlc) | Playing video and m3u8 playlists.               |
+
+## :heavy_check_mark: Optional dependencies
+
+| Dependency                                       | Description             |
+| :---:                                            | :---                    |
+| [`fzf`](https://https://github.com/junegunn/fzf) | More convienient menus. |
 
 # :inbox_tray: Install
 
@@ -80,6 +87,9 @@ sudo make uninstall
     ```
     Search anime: семь смертных
     ```
+    You can specify external command which will be used for prompt with `-p` option
+    
+    Example: `./anilibria-cli -p 'dmenu -p "{PROMPT}: " < /dev/null'`
 
     ```
     [1] Прегрешение: Семь смертных грехов
@@ -97,6 +107,8 @@ sudo make uninstall
     ```
 
     > *If only one anime is found, it will be selected automatically.*
+    
+    > :exclamation: **If fzf is installed or you specified `-m` option, this menu will be replaced.**
 
     ```
     Choosed anime: Семь смертных грехов
@@ -104,29 +116,33 @@ sudo make uninstall
     [q] Quit
     Choose episode [1-24]:
     ```
-
+    
 3. Enter episodes:
 
     **One episode:**
     ```
     Choose episode [1-24]: 4
     ```
+    
+    **Negative episode:**
+    ```
+    Choose episode [1-24]: -2
+    ```
+    > *This will play 23rd episode*
 
     **Multiple episodes:**
     ```
-    Choose episode [1-24]: 2 5 13 18
+    Choose episode [1-24]: 2 5 13 -1 -3
     ```
 
     **A range of episodes:**
     ```
     Choose episode [1-24]: 3-22
     ```
-
-    **Last episode:**
-    ```
-    Choose episode [1-24]: -1
-    ```
-
+    > *Does not support negative numbers*
+    
+    > :exclamation: **If fzf is installed or you specified `-M` option, this menu will be replaced.**
+    
 4. **Enjoy watching!**
 
 ## :keyboard: Action keys
@@ -141,7 +157,7 @@ sudo make uninstall
 # :memo: TODO
 
 - [ ] [Man pages](https://en.wikipedia.org/wiki/Man_page) support
-- [ ] [fzf](https://github.com/junegunn/fzf) support
+- [x] [fzf](https://github.com/junegunn/fzf) support
 - [ ] Thumbnails support
 - [ ] History support
 - [ ] Featured anime support
