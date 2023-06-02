@@ -64,9 +64,12 @@ Usage:
    $NAME [-h | -V | -U]
 
 Other:
-   -h  Print this help message
-   -V  Print version and about POSIX script
-   -U  Update script from GitHub repository
+   -h     -- Print this help message
+   -V     -- Print version and about POSIX script
+   -U     -- Update script from GitHub repository
+   -m cmd -- Use external menu for titles (use {PROMPT} placeholder to pass prompt for external menu)
+   -M cmd -- Use external menu for episodes (use {PROMPT} placeholder to pass prompt for external menu)
+   -p cmd -- Use external prompt (use {PROMPT} placeholder to pass prompt for external menu)
 
 Search:
    Search queries are performed in English and Russian language.
@@ -222,31 +225,6 @@ prompt () {
     done
 }
 
-prompt_sel () {
-    local count=$(wc -l <<< $1)
-    while true; do
-        printf "${C_BLUE}%s${C_RESET} ${C_MAGENTA}[${C_GREEN}1${C_RESET}${C_BOLD}-${C_GREEN}%s${C_MAGENTA}]${C_BLUE}: ${C_YELLOW}" "$2" $count
-        read -r
-        tput sgr0
-        [ -z "$REPLY" ] && print_red "Empty choice" && continue
-        grep -qi q <<< $REPLY && die 0 "Quit..."
-        grep -qi p <<< $REPLY && REPLY=p && return 0
-
-        [ "$REPLY" = "-1" ] && REPLY=$count && break
-
-        if ! [ "$REPLY" -eq "$REPLY" ] 2>/dev/null; then
-            print_red "Invalid choice entered"
-            continue
-        fi
-        if ! [ "$REPLY" -ge 1 ] || ! [ "$REPLY" -le $count ]; then
-            print_red "Out of range"
-            continue
-        fi
-        break
-    done
-    REPLY=$(sed -n "${REPLY}p" <<< $1)
-}
-
 prompt_episode () {
     local start=$2
     local end=$3
@@ -261,9 +239,7 @@ prompt_episode () {
         tput sgr0
         [ -z "$REPLY" ] && print_red "Empty choice" && continue
         grep -qi q <<< $REPLY && die 0 "Quit..."
-        grep -qi p <<< $REPLY && REPLY=p && return 0
-
-        [ "$REPLY" = "-1" ] && REPLY=$end && return 0
+        grep -qi p <<< $REPLY && unset REPLY && return 0
 
         if grep -qE '^[1-9]([0-9]+)?-[1-9]([0-9]+)?$' <<< $REPLY; then
             local ep_start=$(cut -d "-" -f 1 <<< $REPLY)
@@ -292,6 +268,13 @@ prompt_episode () {
                 _invalid=true
                 break
             fi
+            
+            if [ "$ep" -lt 0 ]; then
+                converted_ep=$((ep_end + 1 + ep))
+                REPLY=${REPLY//$ep/$converted_ep}
+                ep=$converted_ep
+            fi
+
             if ! [ "$ep" -ge $start ] || ! [ "$ep" -le $end ]; then
                 print_red "\"$ep\" episode is out of range"
                 _invalid=true
@@ -305,16 +288,70 @@ prompt_episode () {
     done
 }
 
+# Wraps any external menu (such as fzf, dmenu, rofi, etc.) such that
+# it can be used in place of menu_selection function
+# use {PROMPT} placeholder to pass prompt for external menu
+
+external_prompt_wrapper () {
+    local external_prompt="${EXTERNAL_PROMPT//\{PROMPT\}/$1}"
+    REPLY=$(eval $external_prompt)
+}
+
+external_menu_wrapper () {
+    local external_menu="${EXTERNAL_MENU//\{PROMPT\}/$2}"
+    REPLY=$(eval $external_menu <<< "$1")
+}
+
+set_menu () {
+    if command_exists fzf; then
+        echo 'fzf --prompt "{PROMPT}: "'
+    fi
+}
+
+external_multi_menu_wrapper () {
+    local external_multi_menu="${EXTERNAL_MULTI_MENU//\{PROMPT\}/$1}"
+    REPLY=$(seq "$2" "$3" | eval $external_multi_menu)
+}
+
+set_multi_menu() {
+    if command_exists fzf; then
+        echo 'fzf -m --prompt "{PROMPT}: "'
+    fi
+}
+
 # Selections
 menu_selection () {
-    local count=1
+    local count=0
     [ -z "$1" ] && return 1 # Returns 1 if string is empty
     while read -r line; do
-        printf "${C_CYAN}[${C_YELLOW}%s${C_CYAN}]${C_RESET} %s\n" "$count" "$line"
         : $(( count+=1 ))
+        printf "${C_CYAN}[${C_YELLOW}%s${C_CYAN}]${C_RESET} %s\n" "$count" "$line"
     done <<< "$1"
     printf "%b\n" "${C_CYAN}[${C_YELLOW}p${C_CYAN}]${C_RESET} Back" \
                   "${C_CYAN}[${C_YELLOW}q${C_CYAN}]${C_RESET} Quit"
+
+    while true; do
+        printf "${C_BLUE}%s${C_RESET} ${C_MAGENTA}[${C_GREEN}1${C_RESET}${C_BOLD}-${C_GREEN}%s${C_MAGENTA}]${C_BLUE}: ${C_YELLOW}" "$2" $count
+        read -r
+        tput sgr0
+        [ -z "$REPLY" ] && print_red "Empty choice" && continue
+        grep -qi q <<< $REPLY && die 0 "Quit..."
+        grep -qi p <<< $REPLY && unset REPLY && return 0
+
+        [ "$REPLY" -lt 0 ] && REPLY=$((count + 1 + REPLY))
+
+        if ! [ "$REPLY" -eq "$REPLY" ] 2>/dev/null; then
+            print_red "Invalid choice entered"
+            continue
+        fi
+
+        if [ "$REPLY" -lt 1 ] || [ "$REPLY" -gt $count ]; then
+            print_red "Out of range"
+            continue
+        fi
+        break
+    done
+    REPLY=$(sed -n "${REPLY}p" <<< $1)
 }
 
 ### PLAYER SETUP ###
@@ -404,8 +441,16 @@ search_titles () {
 
 trap 'die 1 "\nInterrupted by user"' INT HUP
 
+# Check dependencies
+OS=$(os_detect)
+check_req_dep || die $?
+FETCH="curl -s -G --connect-timeout $TIMEOUT --retry $RETRY"
+PLAYER=$(check_players) || die $?
+EXTERNAL_MENU=$(set_menu)
+EXTERNAL_MULTI_MENU=$(set_multi_menu)
+
 # Parse options
-while getopts ":hVU" opt; do
+while getopts ":hVUm:M:p:" opt; do
     case $opt in
         h)
             SHOW_HELP=true
@@ -415,6 +460,15 @@ while getopts ":hVU" opt; do
         ;;
         U)
             UPDATE_SCRIPT=true
+        ;;
+        m)
+            EXTERNAL_MENU=${OPTARG}
+        ;;
+        M)
+            EXTERNAL_MULTI_MENU=${OPTARG}
+        ;;
+        p)
+            EXTERNAL_PROMPT=${OPTARG}
         ;;
         ?)
             die 2 "Invalid option: -${OPTARG}\nType to print help message: $NAME -h"
@@ -427,11 +481,9 @@ done
 [ -n "$SHOW_HELP" ] && help_text && die 0
 [ -n "$SHOW_ABOUT" ] && about_text && die 0
 
-# Check dependencies
-OS=$(os_detect)
-check_req_dep || die $?
-FETCH="curl -s -G --connect-timeout $TIMEOUT --retry $RETRY"
-PLAYER=$(check_players) || die $?
+[ -n "$EXTERNAL_MENU" ] && MENU=external_menu_wrapper || MENU=menu_selection
+[ -n "$EXTERNAL_MULTI_MENU" ] && MULTI_MENU=external_multi_menu_wrapper || MULTI_MENU=prompt_episode
+[ -n "$EXTERNAL_PROMPT" ] && PROMPT=external_prompt_wrapper || PROMPT=prompt
 
 # Update script if the -U option is given
 [ -n "$UPDATE_SCRIPT" ] && update && die 0
@@ -447,7 +499,8 @@ while true; do
         search)
 
             # Search query
-            prompt "Search anime"
+            $PROMPT "Search anime"
+            [ -z "$REPLY" ] && die 0
             query=$REPLY
 
             # Send request search
@@ -468,9 +521,8 @@ while true; do
 
             tput clear
             if [ $names_count -ne 1 ]; then
-                menu_selection "$names" # Choose anime
-                prompt_sel "$names" "Choose anime"
-                [ "$REPLY" = "p" ] && state="search" && continue
+                $MENU "$names" "Choose anime"
+                [ -z "$REPLY" ] && state="search" && continue
                 anime_ru=$REPLY
             else
                 anime_ru=$names # Choose only one matched
@@ -492,8 +544,8 @@ while true; do
                 [ $names_count -eq 1 ] && state="search" || state="anime"
             else
                 # Choose episode
-                prompt_episode "Choose episode" $ep_start $ep_end
-                if [ "$REPLY" = "p" ]; then
+                $MULTI_MENU "Choose episode" $ep_start $ep_end
+                if [ -z "$REPLY" ]; then
                     [ $names_count -eq 1 ] && state="search" || state="anime"
                     continue
                 fi
