@@ -568,7 +568,7 @@ while true; do
                 [ -z "$url" ] && die 6 "Episode \"${ep}\" not found with any quality"
 
                 ep_array+=($ep)
-                url_array+=("${host_player}/${url}")
+                url_array+=("${host_player}${url}")
 
             done
 
