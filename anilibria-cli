@@ -28,7 +28,7 @@ NAME="${0##*/}"
 DESCRIPTION="A POSIX script that allows you to search and
 play anime series with Russian dubbing AniLibria.TV using
 the official website API <https://github.com/anilibria/docs>"
-VERSION="1.0.1" # major.minor.bugs
+VERSION="1.1.0" # major.minor.bugs
 LICENSE="GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>"
 REPO="Loureas/anilibria-cli"
 SITE="<https://github.com/$REPO>"
@@ -268,7 +268,7 @@ prompt_episode () {
                 _invalid=true
                 break
             fi
-            
+
             if [ "$ep" -lt 0 ]; then
                 converted_ep=$((ep_end + 1 + ep))
                 REPLY=${REPLY//$ep/$converted_ep}
