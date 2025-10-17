@@ -1,3 +1,5 @@
+# :warning: ATTENTION! This script is no longer current and is no longer working due to the AniLibria.TV branch being rebranded as AniLiberty. We are preparing a major update, so please be patient. Thank you in advance! :pray:
+
 <p align="center">
     <a><img width="75%" src=".assets/logo.png" alt="anilibria-cli"></a>
     <br>
